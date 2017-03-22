@@ -1,0 +1,610 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Reading CSV of training data
+```{r}
+house.train = read.csv('train.csv',header=TRUE)
+head(house.train)
+```
+### Summary of Data
+```{r}
+dim(house.train)
+```
+
+
+```{r}
+summary(house.train)
+```
+ 
+There are some variables which have null values. It is possible that these variables might not be valid for a house.(Like, Basement features are null as the house may not have any basement).
+
+
+**Names of variables which have null values**
+```{r}
+null.cols <- sapply(names(house.train), function(x)any(is.na(house.train[,x])))
+null.cols <- null.cols[null.cols == TRUE]
+names(null.cols)
+```
+
+
+###Let's check all the variables which have null values one by one
+
+####Lot Frontage : 
+Certain Houses may not have Lot frontage. So, there are NA. We can set them to zero and add it to LotArea and see if there is a relationship between TotalLot and SalePrice
+```{r}
+house.train[is.na(house.train[,'LotFrontage']),'LotFrontage'] = 0
+house.train[,'TotalLot'] = house.train[,"LotFrontage"] + house.train[,"LotArea"]
+house.train <- house.train[,!(names(house.train) %in% c('LotArea', 'LotFrontage', 'Id'))]
+with(house.train, plot(TotalLot, SalePrice))
+model <- lm(SalePrice~TotalLot, data = house.train)
+abline(model, lwd = 3)
+```
+
+This is not giving any solid relationship because SalePrice and TotalLot on different scale. Taking log might help.
+```{r}
+LogSalePrice <- log(house.train[,'SalePrice'])
+LogTotalLot <- log(house.train[,'TotalLot'])
+plot(LogTotalLot, LogSalePrice)
+model <- lm(LogSalePrice~LogTotalLot)
+abline(model, lwd = 3)
+```
+
+There seems to be a linear relationship between SalePrice and TotalLot
+
+####Alley : 
+There are houses which dont have alley access so in that case we can set Alley to 'None'
+```{r}
+house.train$Alley <- as.character(house.train$Alley)
+house.train[is.na(house.train[,'Alley']),'Alley'] <- 'None'
+```
+
+
+####MasVnrType and MasVnrArea :
+From the summary data there are equal number of NAs in both so it means Masonry Veneer is not present for these homes. So, we can set MasVnrType to None and MasVnrArea to 0.
+```{r}
+house.train$MasVnrType <- as.character(house.train$MasVnrType)
+house.train[is.na(house.train$MasVnrType),'MasVnrType'] <- 'None'
+house.train[is.na(house.train$MasVnrArea),'MasVnrArea'] <- 0
+```
+
+####GarageType, GarageYrBlt, GarageQual, GarageCond, GarageFinish :
+```{r}
+house.train[is.na(house.train$GarageType),c("GarageType", "GarageYrBlt","GarageQual", "GarageCond", "GarageFinish", "GarageCars", "GarageArea")]
+```
+
+For these garage cars and garage area are also 0 so we can set them to None or 0 acccording to their type.
+```{r}
+for (name in c("GarageType", "GarageQual", "GarageCond", "GarageFinish")){
+  house.train[,name]<- as.character(house.train[,name])
+  house.train[is.na(house.train[,name]),name] <- 'None'
+}
+house.train[is.na(house.train$GarageYrBlt),'GarageYrBlt'] <- 0
+```
+
+
+####PoolArea and PoolQC :
+```{r}
+house.train[is.na(house.train$PoolQC),c("PoolArea", "PoolQC")] 
+```
+
+Same explanation as above,
+```{r}
+house.train$PoolQC <- as.character(house.train$PoolQC)
+house.train[is.na(house.train$PoolQC),'PoolQC'] <- 'None'
+```
+
+####Basement Variables :
+```{r}
+house.train[is.na(house.train$BsmtQual), c("BsmtQual", "BsmtCond", "BsmtExposure", "BsmtFinType1", "BsmtFinType2",
+                                           "BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF", "TotalBsmtSF")]
+```
+
+```{r}
+for (name in c("BsmtQual", "BsmtCond", "BsmtExposure", "BsmtFinType1", "BsmtFinType2")){
+  house.train[,name]<- as.character(house.train[,name])
+  house.train[is.na(house.train[,name]),name] <- 'None'
+}
+for (name in c("BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF", "TotalBsmtSF")){
+  house.train[is.na(house.train[,name]),name] <- 0
+}
+```
+
+
+
+####FireplaceQu and Fireplaces :
+```{r}
+house.train[is.na(house.train$FireplaceQu),c("FireplaceQu","Fireplaces")]
+```
+```{r}
+house.train$FireplaceQu <- as.character(house.train$FireplaceQu)
+house.train[is.na(house.train$FireplaceQu),'FireplaceQu'] <- 'None'
+```
+
+
+####Electrical, Fence and MiscFeature fill all with None :
+```{r}
+for (name in c("Electrical", "Fence", "MiscFeature")){
+  house.train[,name]<- as.character(house.train[,name])
+  house.train[is.na(house.train[,name]),name] <- 'None'
+}
+```
+
+
+Checking if there are still NA present
+```{r}
+sapply(null.cols,function(name)any(is.na(house.train[,name])))
+```
+
+-------------------------------------------------------------------------------------
+
+###Now dealing with test data.
+```{r}
+house.test <- read.csv('test.csv',header=TRUE)
+dim(house.test)
+summary(house.test)
+```
+
+### Dealing with missing values in test data
+
+Names of columns which have null values.
+```{r}
+null.cols.test <- sapply(names(house.test), function(col.name)any(is.na(house.test[, col.name])))
+null.cols.test <- null.cols.test[null.cols.test == TRUE]
+null.cols.test <- names(null.cols.test)
+null.cols.test
+```
+
+#### MSZoning :
+null values of MSZoning can be predicted by neighbourhood.
+```{r}
+house.test[is.na(house.test$MSZoning),c("MSZoning", "Neighborhood")]
+```
+```{r}
+temp.data <- house.test[house.test$Neighborhood =='IDOTRR'|house.test$Neighborhood =='Mitchel', c("MSZoning", "Neighborhood")]
+elements <- c('IDOTRR', 'Mitchel')
+for (name in elements){
+  print(name)
+  print(summary(temp.data[temp.data$Neighborhood==name,'MSZoning']))
+}
+library(ggplot2)
+qplot(MSZoning, data = temp.data, facets = .~Neighborhood)
+```
+So, for IDOTRR it is most likely to be RM, for Mitchell it is most likely to be RL.
+
+```{r}
+house.test[,'MSZoning'] <- as.character(house.test$MSZoning)
+house.test[is.na(house.test$MSZoning) & house.test$Neighborhood == 'IDOTRR', 'MSZoning'] <- 'RM'
+house.test[is.na(house.test$MSZoning) & house.test$Neighborhood == 'Mitchel', 'MSZoning'] <- 'RL'
+```
+
+
+#### LotFrontage :
+```{r}
+house.test[is.na(house.test$LotFrontage), c("LotFrontage", "LotArea")]
+```
+We can add LotFrontage and LotArea together
+```{r}
+house.test[is.na(house.test$LotFrontage), 'LotFrontage'] <- 0
+house.test[,'TotalLot'] <- house.test$LotFrontage + house.test$LotArea
+house.test <- house.test[,!names(house.test) %in% c("Id", "LotArea", "LotFrontage")]
+```
+
+#### Alley : 
+```{r}
+house.test[,'Alley'] <- as.character(house.test$Alley)
+house.test[is.na(house.test$Alley), 'Alley'] <- 'None'
+```
+
+#### Utilities : 
+We can assume where utilities is NA, there are no utilities available.
+```{r}
+house.test[,'Utilities'] <- as.character(house.test$Utilities)
+house.test[is.na(house.test$Utilities), 'Utilities'] <- 'None'
+```
+
+#### Exterior1st & Exterior2nd :
+Exterior 1 (Nominal): Exterior covering on house
+
+       AsbShng	Asbestos Shingles
+       AsphShn	Asphalt Shingles
+       BrkComm	Brick Common
+       BrkFace	Brick Face
+       CBlock	Cinder Block
+       CemntBd	Cement Board
+       HdBoard	Hard Board
+       ImStucc	Imitation Stucco
+       MetalSd	Metal Siding
+       Other	Other
+       Plywood	Plywood
+       PreCast	PreCast	
+       Stone	Stone
+       Stucco	Stucco
+       VinylSd	Vinyl Siding
+       Wd Sdng	Wood Siding
+       WdShing	Wood Shingles
+Exterior 2 (Nominal): Exterior covering on house (if more than one material)
+
+       AsbShng	Asbestos Shingles
+       AsphShn	Asphalt Shingles
+       BrkComm	Brick Common
+       BrkFace	Brick Face
+       CBlock	Cinder Block
+       CemntBd	Cement Board
+       HdBoard	Hard Board
+       ImStucc	Imitation Stucco
+       MetalSd	Metal Siding
+       Other	Other
+       Plywood	Plywood
+       PreCast	PreCast
+       Stone	Stone
+       Stucco	Stucco
+       VinylSd	Vinyl Siding
+       Wd Sdng	Wood Siding
+       WdShing	Wood Shingles
+If Exterior1st and Exterior2nd are NA for a given house, it is safe to assume that they are not present for the house 
+       
+```{r}
+for (name in c("Exterior1st", "Exterior2nd")){
+  house.test[,name] <- as.character(house.test[,name])
+  house.test[is.na(house.test[,name]), name] <- 'None'
+}
+```
+ 
+#### MasVnrType and MasVnrArea :
+Check if what is MasVnrArea for null MasVnrType, so that we can make decision whether we can assume MasVnrType None or not.
+```{r}
+house.test[is.na(house.test$MasVnrType), c("MasVnrType", "MasVnrArea")]
+```
+From the summary above None is already a category for which area is :
+```{r}
+house.test[house.test$MasVnrType=='None', c("MasVnrType", "MasVnrArea")]
+```
+We can predict MasVnrType from MasVnrArea 
+
+```{r}
+boxplot(MasVnrArea ~ MasVnrType, data = house.test)
+```
+So, for one NA MasVnrType which has MasVnrArea as 198, it is highly probable that it belongs to BrkCmn.
+```{r}
+house.test[,'MasVnrType'] <- as.character(house.test$MasVnrType)
+house.test[is.na(house.test$MasVnrType) & !is.na(house.test$MasVnrArea), 'MasVnrType'] <- 'BrkCmn'
+```
+
+for others NA MasVnrType and MasVnrArea, we can set them to None & 0, respectively. 
+Right now, we dont have any way to predict their values from other variables.
+```{r}
+house.test[,'MasVnrType'] <- as.character(house.test$MasVnrType)
+house.test[is.na(house.test$MasVnrType), 'MasVnrType'] <- 'None'
+house.test[is.na(house.test$MasVnrArea), 'MasVnrArea'] <- 0
+
+```
+
+#### Basement Variables :
+```{r}
+house.test[is.na(house.test$BsmtCond), c("BsmtQual", "BsmtCond", "BsmtExposure", "BsmtFinType1", "BsmtFinType2",
+                                           "BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF", "TotalBsmtSF")]
+```
+
+
+#####BsmtFin Type 1	: Rating of basement finished area
+```{r}
+house.test[is.na(house.test$BsmtFinType2), c("BsmtQual", "BsmtCond", "BsmtExposure", "BsmtFinType1", "BsmtFinType2",
+                                           "BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF", "TotalBsmtSF")]
+```
+
+As all the Bsmt Variables for null BsmntFinType1 or 2 are nulls or zero, thus we can set them to None or zero by assuming that the basement is not be present for these houses.
+```{r}
+for (name in c("BsmtQual", "BsmtCond", "BsmtExposure", "BsmtFinType2")){
+  house.test[, name]<- as.character(house.test[, name])
+  house.test[is.na(house.test$BsmtFinType1),name] <- 'None'
+}
+for (name in c("BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF", "TotalBsmtSF")){
+  house.test[is.na(house.test$BsmtFinType1),name] <- 0
+}
+house.test[, "BsmtFinType1"]<- as.character(house.test[, "BsmtFinType1"])
+house.test[is.na(house.test$BsmtFinType1),"BsmtFinType1"] <- 'None'
+```
+
+
+#####Bsmt Exposure : Refers to walkout or garden level walls
+It is independent variable thus cannot be predicted from other Bsmt values. Thus, we can safely assume that either exposure is not available or Bsmt itself is not available.
+```{r}
+house.test[,'BsmtExposure'] <- as.character(house.test$BsmtExposure)
+house.test[is.na(house.test$BsmtExposure), 'BsmtExposure'] <- 'None'
+```
+
+After all this assigmnet let's see if we can predict values of Bsmt Qual or Bsmt Cond.
+
+#####Bsmt Qual : Evaluates the height of the basement
+```{r}
+house.test[is.na(house.test$BsmtQual), c("BsmtQual", "BsmtCond", "BsmtExposure", "BsmtFinType1", "BsmtFinType2",
+                                           "BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF", "TotalBsmtSF")]
+```
+What is the general Bsmt Qual of unfinished basement with no exposure and Bsmt Condition is Fa(Fair - dampness or some cracking or settling).
+```{r}
+summary(as.factor(house.test[house.test$BsmtFinType1 == 'Unf' & house.test$BsmtExposure == 'No' & house.test$BsmtCond == 'Fa', c('BsmtQual')]))
+```
+
+So it is TA(typical).
+```{r}
+house.test[,'BsmtQual'] <- as.character(house.test$BsmtQual)
+house.test[is.na(house.test$BsmtQual) & house.test$BsmtFinType1 == 'Unf' & house.test$BsmtExposure == 'No' & house.test$BsmtCond == 'Fa', 'BsmtQual'] <- 'TA'
+```
+What is the general Bsmt Qual of unfinished basement with no exposure and Bsmt Condition is TA(Typical - slight dampness allowed).
+
+```{r}
+summary(as.factor(house.test[house.test$BsmtFinType1 == 'Unf' & house.test$BsmtExposure == 'No' & house.test$BsmtCond == 'TA', c('BsmtQual')]))
+```
+It also seems to be typical.
+```{r}
+house.test[,'BsmtQual'] <- as.character(house.test$BsmtQual)
+house.test[is.na(house.test$BsmtQual) & house.test$BsmtFinType1 == 'Unf' & house.test$BsmtExposure == 'No' & house.test$BsmtCond == 'TA', 'BsmtQual'] <- 'TA'
+```
+
+##### BsmtCond : Evaluates the general condition of the basement
+```{r}
+house.test[is.na(house.test$BsmtCond), c("BsmtQual", "BsmtCond", "BsmtExposure", "BsmtFinType1", "BsmtFinType2",
+                                           "BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF", "TotalBsmtSF")]
+```
+
+```{r}
+summary(as.factor(house.test[house.test$BsmtFinType1 == 'BLQ' & house.test$BsmtExposure == 'No' & house.test$BsmtQual == 'TA', c('BsmtCond')]))
+```
+
+It is most probably TA
+```{r}
+house.test[,'BsmtCond'] <- as.character(house.test$BsmtCond)
+house.test[is.na(house.test$BsmtCond) & house.test$BsmtFinType1 == 'BLQ' & house.test$BsmtExposure == 'No' & house.test$BsmtQual == 'TA', 'BsmtCond'] <- 'TA'
+```
+
+```{r}
+summary(as.factor(house.test[house.test$BsmtFinType1 == 'ALQ' & house.test$BsmtExposure == 'Av' & house.test$BsmtQual == 'TA', c('BsmtCond')]))
+```
+
+```{r}
+house.test[,'BsmtCond'] <- as.character(house.test$BsmtCond)
+house.test[is.na(house.test$BsmtCond) & house.test$BsmtFinType1 == 'ALQ' & house.test$BsmtExposure == 'Av' & house.test$BsmtQual == 'TA', 'BsmtCond'] <- 'TA'
+```
+
+With basement quality good, basement exposure as minimum exposure
+```{r}
+summary(as.factor(house.test[house.test$BsmtFinType1 == 'GLQ' & house.test$BsmtExposure == 'Mn' & house.test$BsmtQual == 'Gd', c('BsmtCond')]))
+```
+Including BsmtFinType2 with Rec(Average Rec Room)
+```{r}
+summary(as.factor(house.test[house.test$BsmtFinType1 == 'GLQ' & house.test$BsmtFinType2 == 'Rec' & house.test$BsmtExposure == 'Mn' & house.test$BsmtQual == 'Gd', c('BsmtCond')]))
+```
+
+It is not really helping since there is only one record with these conditions. So, if we ignore finType1
+```{r}
+summary(as.factor(house.test[house.test$BsmtFinType2 == 'Rec' & house.test$BsmtExposure == 'Mn' & house.test$BsmtQual == 'Gd', c('BsmtCond')]))
+```
+Basement Fine type 2 is not really helping to make our assumption.
+We cannot ignore Basement exposure and basement qual as both are factors to determine the condition of basement like dampness etc.
+```{r}
+house.test[,'BsmtCond'] <- as.character(house.test$BsmtCond)
+house.test[is.na(house.test$BsmtCond) & house.test$BsmtFinType1 == 'GLQ' & house.test$BsmtExposure == 'Mn' & house.test$BsmtQual == 'Gd', 'BsmtCond'] <- 'TA'
+```
+
+Are we left with any other null Basement variables?
+```{r}
+sapply(c("BsmtQual", "BsmtCond", "BsmtExposure", "BsmtFinType1", "BsmtFinType2",
+                                           "BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF", "TotalBsmtSF"), function(name)any(is.na(house.test[,name])))
+```
+
+####Bsmt Full Bath and Bsmt Half Bath :
+```{r}
+house.test[is.na(house.test$BsmtFullBath), c("BsmtFullBath", "BsmtHalfBath","BsmtCond")]
+```
+It is safe to assume theat Basement full and half bathrooms doea not exist as there is no basement.
+```{r}
+for (name in c("BsmtHalfBath", "BsmtFullBath")){
+  house.test[, name]<- as.character(house.test[, name])
+  house.test[is.na(house.test[,name]),name] <- 'None'
+  
+}
+```
+
+
+####KitchenQual
+```{r}
+house.test[is.na(house.test$KitchenQual),]
+```
+
+Thus, kitchen quality value is missing for this record. How can we guess its value?
+the quality of house roughly depends on its condition1, condition2, YearBuilt, Building Type and house style.
+
+```{r}
+summary(as.factor(house.test[house.test$Condition1 == 'Norm' & house.test$Condition2 == 'Norm' &  house.test$BldgType == '1Fam' & house.test$HouseStyle == '1.5Fin' & house.test$KitchenAbvGr == 1 & house.test$YearRemodAdd == 1950,'KitchenQual']))
+```
+
+Again, quality is coming out to be TA
+```{r}
+house.test[,'KitchenQual'] <- as.character(house.test$KitchenQual)
+house.test[is.na(house.test$KitchenQual) & house.test$Condition1 == 'Norm' & house.test$Condition2 == 'Norm' &  house.test$BldgType == '1Fam' & house.test$HouseStyle == '1.5Fin' & house.test$KitchenAbvGr == 1 & house.test$YearRemodAdd == 1950, 'KitchenQual'] <- 'TA'
+```
+
+####Functional : 
+We are assuming it to be typical as there is no way to deduce it on the basis of other variables.
+```{r}
+house.test[,'Functional'] <- as.character(house.test$Functional)
+house.test[is.na(house.test$Functional), 'Functional'] <- 'Typ'
+
+```
+
+####Fireplaces & FireplaceQu :
+```{r}
+house.test[is.na(house.test$FireplaceQu), c("Fireplaces", "FireplaceQu")]
+```
+
+So, it is safe to assume that FireplaceQu is none as there are no fireplaces.
+```{r}
+house.test[,'FireplaceQu'] <- as.character(house.test$FireplaceQu)
+house.test[is.na(house.test$FireplaceQu), 'FireplaceQu'] <- 'None'
+```
+
+
+####Garage Variables :
+```{r}
+house.test[is.na(house.test$GarageYrBlt),c("GarageType", "GarageYrBlt", "GarageFinish", "GarageCars", "GarageArea", "GarageQual", "GarageCond")]
+```
+
+There is one entry which has detached garage for 1 car with area of 360. We cannot guess its other values so let just assume they are None and 0.
+```{r}
+for (name in c("GarageType", "GarageQual", "GarageCond", "GarageFinish")){
+  house.test[, name]<- as.character(house.test[, name])
+  house.test[is.na(house.test[,name]),name] <- 'None'
+}
+for (name in c("GarageYrBlt", "GarageCars", "GarageArea")){
+  house.test[is.na(house.test[,name]),name] <- 0
+}
+```
+
+####PoolArea and PoolQc : 
+```{r}
+house.test[is.na(house.test$PoolQC) & house.test$PoolArea != 0,c("PoolArea", "PoolQC")]
+```
+
+There are entries which has pool but pool quality is miissing.
+We can calculate mean pool area for each quality and then assign quality to the pool areas which lie btw minimum and maximum in each quality.
+Here we will use training data and test data as well.
+
+Merging two tables train and test
+```{r}
+temp.data <- rbind(house.test[,c("PoolArea", "PoolQC")], house.train[,c("PoolArea", "PoolQC")])
+```
+
+
+**Minimum**
+```{r}
+aggregate(PoolArea ~ PoolQC, temp.data, min)
+```
+**Maximum**
+```{r}
+aggregate(PoolArea ~ PoolQC, temp.data, max)
+```
+
+There is a pool with poolArea 800. This is an oulier. Removing pool which has this area and taking max again.
+```{r}
+temp.data <- temp.data[temp.data$PoolArea < 700,]
+aggregate(PoolArea ~ PoolQC, temp.data, max)
+```
+
+So, the pool which has a area of 368 will be Ex, pool which has a area of 444 will be Ex, pool which has a area of 561 could either be in Gd or Fa.
+
+**Mean**
+```{r}
+aggregate(PoolArea ~ PoolQC, temp.data, mean)
+```
+We above data since 561 is close to 583, we can make a rough guess that it is Fa.
+```{r}
+house.test[,'PoolQC'] <- as.character(house.test$PoolQC)
+house.test[is.na(house.test$PoolQC) & (house.test$PoolArea == 368 | house.test$PoolArea == 444), 'PoolQC'] <- 'Ex'
+house.test[is.na(house.test$PoolQC) & (house.test$PoolArea == 561), 'PoolQC'] <- 'Fa'
+```
+ All those for which pool area is 0 and Pool Qc is null we can assume that pool does not exist.
+ 
+```{r}
+house.test[,'PoolQC'] <- as.character(house.test$PoolQC)
+house.test[is.na(house.test$PoolQC), 'PoolQC'] <- 'None'
+```
+
+####Fence
+
+Total 169 entries which can be set to none as there may no fences available
+```{r}
+house.test[,'Fence'] <- as.character(house.test$Fence)
+house.test[is.na(house.test$Fence), 'Fence'] <- 'None'
+```
+
+####MiscFeature
+```{r}
+house.test[is.na(house.test$MiscFeature) & (house.test$MiscVal!=0) , c("MiscFeature", "MiscVal")]
+```
+
+Combining train and test data to look at Misc Features,
+```{r}
+temp.data <- rbind(house.train[,c("MiscFeature", "MiscVal")], house.test[,c("MiscFeature", "MiscVal")])
+temp.data[(temp.data$MiscVal!=0) , c("MiscFeature", "MiscVal")]
+```
+
+It is evident that Gar2 feature is costly so it is most likely to be Gar2
+Looking at train data 
+```{r}
+house.test[,'MiscFeature'] <- as.character(house.test$MiscFeature)
+house.test[is.na(house.test$MiscFeature) & (house.test$MiscVal==0) , 'MiscFeature'] <- 'None'
+house.test[is.na(house.test$MiscFeature) & (house.test$MiscVal!=0) , 'MiscFeature'] <- 'Gar2'
+```
+
+
+####SaleType
+```{r}
+elements <- unique(house.test[,'SaleCondition'])
+for (each.element in elements){
+  print(each.element)
+  print(summary(house.test[house.test$SaleCondition == each.element, c("SaleType")]))
+
+}
+```
+
+```{r}
+g <- ggplot(data = house.test, aes(x = SaleType))
+g <- g+geom_bar() + facet_wrap(~SaleCondition, nrow = 3)
+g
+
+```
+So, in case of normal sale condition sale type is more likely to be WD.
+```{r}
+house.test[,'SaleType'] <- as.character(house.test$SaleType)
+house.test[is.na(house.test$SaleType), 'SaleType'] <- 'WD'
+```
+Check if any null values left in house.test
+```{r}
+null.cols.test <- sapply(names(house.test), function(col)any(is.na(house.test[,col])))
+null.cols.test <- null.cols.test[null.cols.test == TRUE]
+null.cols.test
+```
+
+
+
+==============================================================================
+
+
+
+### For Training Model :
+Test and Train data are combined and all the character variables are converted to factor variables. This is done so that any training model should know that what are all the factors possible for a variable even if some factors are available in train and missing in test for the variable or vice versa.
+
+Now, combining train and test data
+```{r}
+house.test[,'SalePrice'] <- 0
+#set a flag to differentiate between test and train
+house.train[,'Flag'] <- 0
+house.test[,'Flag'] <- 1
+temp.data <- rbind(house.train, house.test)
+```
+
+Getting all the character variables and converting it to factor variables
+```{r}
+factor.var <- sapply(names(temp.data), function(name)!is.numeric(temp.data[,name]))
+factor.var <- names(factor.var[factor.var==TRUE])
+factor.var
+```
+
+Converting all to factors
+```{r}
+for (name in factor.var){
+  temp.data[,name] <- as.factor(temp.data[,name])
+}
+```
+
+Splitting temp.data to train and test again
+```{r}
+house.train <- temp.data[temp.data$Flag==0,]
+house.test <- temp.data[temp.data$Flag==1,]
+house.train <- house.train[,!(names(house.train) %in% c("Flag"))]
+house.test <- house.test[,!(names(house.test) %in% c("Flag","SalePrice"))]
+```
+
+
